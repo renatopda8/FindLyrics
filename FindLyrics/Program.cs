@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using FindLyrics.websites;
-using SpotifyAPI.Local;
-using SpotifyAPI.Local.Models;
+using SpotifyAPI.Web;
+using SpotifyAPI.Web.Auth;
+using SpotifyAPI.Web.Enums;
+using SpotifyAPI.Web.Models;
 
 namespace FindLyrics
 {
@@ -15,7 +19,7 @@ namespace FindLyrics
             SetDebug();
         }
 
-        private static SpotifyLocalAPI _spotify;
+        private static SpotifyWebAPI _spotify;
         private static List<ILyrics> _lyricsWebsites;
 
         public static void Main(string[] args)
@@ -24,9 +28,24 @@ namespace FindLyrics
             string trackName = string.Empty;
             try
             {
-                StatusResponse status = Spotify.GetStatus();
-                artistName = status.Track.ArtistResource.Name;
-                trackName = status.Track.TrackResource.Name;
+                PlaybackContext pc = Spotify.GetPlayback();
+                if (pc == null)
+                {
+                    throw new Exception("PlaybackContext null");
+                }
+
+                if (pc.Error != null)
+                {
+                    throw new Exception($"{pc.Error.Status} - {pc.Error.Message}");
+                }
+
+                if (pc.Item == null)
+                {
+                    throw new Exception("FullTrack null");
+                }
+
+                artistName = pc.Item.Artists?.FirstOrDefault()?.Name;
+                trackName = pc.Item.Name;
                 foreach (ILyrics lyrics in LyricsWebsites)
                 {
                     string lyricsResult = lyrics.SearchLyricsUrl(artistName, trackName);
@@ -80,33 +99,19 @@ namespace FindLyrics
             _lyricsWebsites ?? (_lyricsWebsites = new List<ILyrics> {new AzLyrics(), new DarkLyrics()});
 
         /// <summary>
-        /// API Local do Spotify
+        /// Web API do Spotify
         /// </summary>
-        private static SpotifyLocalAPI Spotify
+        private static SpotifyWebAPI Spotify
         {
             get
             {
-                if (_spotify != null)
+                if (_spotify == null)
                 {
-                    return _spotify;
+                    WebAPIFactory webApiFactory = new WebAPIFactory("http://localhost", 8000, "c7af116523b3453ea822e36cc694d7f5",
+                    Scope.UserReadPlaybackState, TimeSpan.FromSeconds(20));
+                    _spotify = webApiFactory.GetWebApi()?.Result;
                 }
-
-                if (!SpotifyLocalAPI.IsSpotifyRunning())
-                {
-                    throw new Exception("Spotify not running");
-                }
-
-                if (!SpotifyLocalAPI.IsSpotifyWebHelperRunning())
-                {
-                    throw new Exception("Spotify WebHelper not running");
-                }
-
-                _spotify = new SpotifyLocalAPI();
-                if (!_spotify.Connect())
-                {
-                    throw new Exception("Failed to Connect with Spotify");
-                }
-
+                
                 return _spotify;
             }
         }
